@@ -45,7 +45,7 @@ extern crate sgx_serialize_derive;
 extern crate secp256k1;
 extern crate bigint;
 extern crate sha3;
-extern crate block;
+extern crate block_transaction as block;
 
 use bigint::{Address, H256};
 use block::{FromKey};
