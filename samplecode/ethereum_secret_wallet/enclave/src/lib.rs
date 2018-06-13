@@ -36,6 +36,7 @@
 #[macro_use]
 extern crate sgx_tstd as std;
 extern crate sgx_rand;
+extern crate sgx_types;
 #[macro_use]
 extern crate sgx_rand_derive;
 extern crate sgx_serialize;
@@ -44,31 +45,27 @@ extern crate sgx_serialize_derive;
 extern crate secp256k1;
 extern crate bigint;
 extern crate sha3;
+extern crate block;
 
 use bigint::{Address, H256};
+use block::{FromKey};
 use sha3::{Digest, Keccak256};
 use secp256k1::*;
 
 use std::sgxfs::SgxFile;
 use std::io::{Read, Write};
+use sgx_types::*;
 
 use sgx_serialize::{SerializeHelper, DeSerializeHelper};
 
 #[derive(Copy, Clone, Default, Debug, Serializable, DeSerializable, Rand)]
 struct EthereumSecretWallet {
     signing_key: [u8; 32],
-
 }
 
-
-fn public_key_to_ethereum_address(public_key: &PublicKey) -> Address {
-    let hash = H256::from(
-        Keccak256::digest(&public_key.serialize()[1..]).as_slice());
-    Address::from(hash)
-}
 
 #[no_mangle]
-pub extern "C" fn write_file() -> i32 {
+pub extern "C" fn write_file() -> sgx_status_t {
     let wallet = sgx_rand::random::<EthereumSecretWallet>();
 
     let helper = SerializeHelper::new();
@@ -76,7 +73,7 @@ pub extern "C" fn write_file() -> i32 {
         Some(d) => d,
         None => {
             println!("encode data failed.");
-            return 1;
+            return sgx_status_t::SGX_ERROR_UNEXPECTED;
         }
     };
 
@@ -84,7 +81,7 @@ pub extern "C" fn write_file() -> i32 {
         Ok(f) => f,
         Err(_) => {
             println!("SgxFile::create failed.");
-            return 2;
+            return sgx_status_t::SGX_ERROR_UNEXPECTED;
         }
     };
 
@@ -92,23 +89,23 @@ pub extern "C" fn write_file() -> i32 {
         Ok(len) => len,
         Err(_) => {
             println!("SgxFile::write failed.");
-            return 3;
+            return sgx_status_t::SGX_ERROR_UNEXPECTED;
         }
     };
 
     println!("write file success, write size: {}.", write_size);
-    0
+    sgx_status_t::SGX_SUCCESS
 }
 
 #[no_mangle]
-pub extern "C" fn read_file() -> i32 {
+pub extern "C" fn read_file() -> sgx_status_t {
     let mut data = [0_u8; 100];
 
     let mut file = match SgxFile::open("sgx_file") {
         Ok(f) => f,
         Err(_) => {
             println!("SgxFile::open failed.");
-            return 1;
+            return sgx_status_t::SGX_ERROR_UNEXPECTED;
         }
     };
 
@@ -116,7 +113,7 @@ pub extern "C" fn read_file() -> i32 {
         Ok(len) => len,
         Err(_) => {
             println!("SgxFile::read failed.");
-            return 2;
+            return sgx_status_t::SGX_ERROR_UNEXPECTED;
         }
     };
 
@@ -125,30 +122,29 @@ pub extern "C" fn read_file() -> i32 {
         Some(d) => d,
         None => {
             println!("decode data failed.");
-            return 3;
+            return sgx_status_t::SGX_ERROR_UNEXPECTED;
         }
     };
 
     let secret_key = SecretKey::parse(&wallet.signing_key).unwrap();
-    let public_key = PublicKey::from_secret_key(&secret_key);
-    let address = public_key_to_ethereum_address(&public_key);
+    let address = Address::from_secret_key(&secret_key).unwrap();
 
     println!("read file success, read size: {}.", read_size);
     println!("Your SGX ethereum wallet is: 0x{:02x?}", address);
-    0
+    sgx_status_t::SGX_SUCCESS
 }
 
 
 
 #[no_mangle]
-pub extern "C" fn sign() -> i32 {
+pub extern "C" fn sign() -> sgx_status_t {
     let mut data = [0_u8; 100];
 
     let mut file = match SgxFile::open("sgx_file") {
         Ok(f) => f,
         Err(_) => {
             println!("SgxFile::open failed.");
-            return 1;
+            return sgx_status_t::SGX_ERROR_UNEXPECTED;
         }
     };
 
@@ -156,7 +152,7 @@ pub extern "C" fn sign() -> i32 {
         Ok(len) => len,
         Err(_) => {
             println!("SgxFile::read failed.");
-            return 2;
+            return sgx_status_t::SGX_ERROR_UNEXPECTED;
         }
     };
 
@@ -165,17 +161,16 @@ pub extern "C" fn sign() -> i32 {
         Some(d) => d,
         None => {
             println!("decode data failed.");
-            return 3;
+            return sgx_status_t::SGX_ERROR_UNEXPECTED;
         }
     };
 
     let secret_key = SecretKey::parse(&wallet.signing_key).unwrap();
-    let public_key = PublicKey::from_secret_key(&secret_key);
-    let address = public_key_to_ethereum_address(&public_key);
+    let address = Address::from_secret_key(&secret_key).unwrap();
 
     println!("read file success, read size: {}.", read_size);
     println!("Your SGX ethereum wallet is: 0x{:02x?}", address);
 
     // TODO: signing.
-    0
+    sgx_status_t::SGX_SUCCESS
 }
