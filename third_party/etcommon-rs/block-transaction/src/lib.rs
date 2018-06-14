@@ -15,6 +15,7 @@ mod address;
 pub use block_core::*;
 pub use transaction::*;
 pub use address::FromKey;
+pub use rlp::*;
 
 use bigint::H256;
 
