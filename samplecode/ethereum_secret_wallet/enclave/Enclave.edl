@@ -39,7 +39,7 @@ enclave {
 
         public int write_file();
         public int read_file();
-        public int sign();
+        public int sign([in, size=len] const uint8_t* some_string, size_t len);
     };
 
     untrusted {

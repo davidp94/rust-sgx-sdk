@@ -22,4 +22,4 @@ sgx_serialize_derive = { path = "../../../sgx_serialize_derive"}
 libsecp256k1 = { path = "../../../third_party/libsecp256k1-rs" }
 etcommon-bigint = { path = "../../../third_party/etcommon-rs/bigint" }
 etcommon-block-transaction = { path = "../../../third_party/etcommon-rs/block-transaction" }
-sha3 = "0.6"
+hex = { path = "../../../third_party/rust-hex" }

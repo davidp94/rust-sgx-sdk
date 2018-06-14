@@ -216,7 +216,7 @@ int initialize_enclave(void)
 }
 
 void usage() {
-    printf("./app [read|create|sign]\n");
+    printf("./app [read|create|sign (metadata)]\n\nmetadata: NONCE|gasprice|gaslimit|[address_smart_contract or creation or destination]|value|[hex string data, only when calling a smart contract or sending value, otherwise empty]\n");
 }
 
 /* Application entry */
@@ -235,10 +235,7 @@ int SGX_CDECL main(int argc, char *argv[])
         return -1;
     }
 
-    printf("argc = %d\n", argc);
     if(argc > 1) {
-        printf("argv[1] = %s\n", argv[1]);
-
         if(strcmp(argv[1], "create") == 0) {
             printf("writing\n");
             sgx_ret = write_file(global_eid, &ret);
@@ -271,7 +268,15 @@ int SGX_CDECL main(int argc, char *argv[])
         if(strcmp(argv[1], "sign") == 0) {
             printf("sign\n");
 
-            sgx_ret = sign(global_eid, &ret);
+            if(argc!=3) {
+                usage();
+                return -1;
+            }
+
+            // NONCE|gasprice|gaslimit|[address_smart_contract or creation or destination]|value|[hex string data, only when calling a smart contract or sending value, otherwise empty]
+            size_t len = strlen(argv[2]);
+
+            sgx_ret = sign(global_eid, &ret, (const uint8_t *) argv[2], len);
             if(sgx_ret != SGX_SUCCESS) {
                print_error_message(sgx_ret);
                return -1;

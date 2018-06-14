@@ -44,16 +44,18 @@ extern crate sgx_serialize;
 extern crate sgx_serialize_derive;
 extern crate secp256k1;
 extern crate bigint;
-extern crate sha3;
 extern crate block_transaction as block;
+extern crate hex;
 
-use bigint::{Address, H256};
-use block::{FromKey};
-use sha3::{Digest, Keccak256};
+use bigint::{Address, H160, U256, Gas};
+use block::{FromKey, SignaturePatch, UnsignedTransaction, TransactionAction, RlpStream, Encodable};
 use secp256k1::*;
 
 use std::sgxfs::SgxFile;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
+use std::slice;
+use std::string::{String, ToString};
+use std::vec::Vec;
 use sgx_types::*;
 
 use sgx_serialize::{SerializeHelper, DeSerializeHelper};
@@ -63,6 +65,13 @@ struct EthereumSecretWallet {
     signing_key: [u8; 32],
 }
 
+const CHAIN_ID: u64 = 57777;
+
+pub struct MyChainPatch;
+
+impl SignaturePatch for MyChainPatch {
+    fn chain_id() -> Option<u64> { Some(CHAIN_ID) }
+}
 
 #[no_mangle]
 pub extern "C" fn write_file() -> sgx_status_t {
@@ -135,9 +144,8 @@ pub extern "C" fn read_file() -> sgx_status_t {
 }
 
 
-
 #[no_mangle]
-pub extern "C" fn sign() -> sgx_status_t {
+pub extern "C" fn sign(some_string: *const u8, some_len: usize) -> sgx_status_t {
     let mut data = [0_u8; 100];
 
     let mut file = match SgxFile::open("sgx_file") {
@@ -165,12 +173,73 @@ pub extern "C" fn sign() -> sgx_status_t {
         }
     };
 
+//    Ganache dev
+//    let ganache_key: [u8; 32] = [0xce, 0x1f, 0x60, 0xd5, 0x97, 0xa2, 0xac, 0xf1, 0x74, 0x3f, 0x84, 0x65, 0xcd, 0x92, 0x63, 0xc1, 0x10, 0xb1, 0xb9, 0x89, 0x4e, 0x7b, 0xe9, 0xab, 0x09, 0x7d, 0xfe, 0x45, 0x84, 0x82, 0xd7, 0x03];
+//    let secret_key = SecretKey::parse(&ganache_key).unwrap();
+
+    //from sealed data
     let secret_key = SecretKey::parse(&wallet.signing_key).unwrap();
+
     let address = Address::from_secret_key(&secret_key).unwrap();
 
     println!("read file success, read size: {}.", read_size);
     println!("Your SGX ethereum wallet is: 0x{:02x?}", address);
 
-    // TODO: signing.
+    let str_slice = unsafe { slice::from_raw_parts(some_string, some_len) };
+    let _ = io::stdout().write(str_slice);
+
+//    println!("{:?}", str_slice);
+    let string: String = String::from_utf8(str_slice.to_vec()).unwrap();
+    let split = string.split("|");
+
+    // NONCE|gasprice|gaslimit|[address_smart_contract or creation or destination]|value|[hex string data, only when calling a smart contract or sending value, otherwise empty]
+    let vec: Vec<&str> = split.collect();
+    let _nonce: u64 = vec[0].parse::<u64>().unwrap();
+    let _gas_price: u64 = vec[1].parse::<u64>().unwrap();
+    let _gas_limit: u64 = vec[2].parse::<u64>().unwrap();
+    let mut destination: String = vec[3].parse::<String>().unwrap();
+    let _value: u64 = vec[4].parse::<u64>().unwrap();
+    let mut hex_data: String = vec[5].parse::<String>().unwrap();
+
+    if hex_data.len() > 2 && hex_data[0..2] == "0x".to_string() {
+        hex_data = hex_data[2..].to_string();
+    }
+    let _input: Vec<u8> = hex::decode(hex_data).unwrap();
+
+    let mut _action = TransactionAction::Create;
+
+    if destination.len() > 2 {
+        if destination.starts_with("0x") {
+            destination = destination[2..].to_string();
+        }
+        let mut _dest: Vec<u8> = hex::decode(destination).unwrap();
+        let mut _address: H160 = Address::new();
+        if _dest.len() > 1 {
+            _address = Address::from(_dest.as_slice());
+            _action = TransactionAction::Call(_address);
+        }
+    }
+
+    let unsigned = UnsignedTransaction {
+        nonce: U256::from(_nonce),
+        gas_price: Gas::from(_gas_price),
+        gas_limit: Gas::from(_gas_limit),
+        action: _action,
+        value: U256::from(_value),
+        input: _input,
+    };
+
+    let signed = unsigned.sign::<MyChainPatch>(&secret_key);
+
+    let mut stream = RlpStream::new();
+    signed.rlp_append(&mut stream);
+    let rlp_out = stream.as_raw();
+
+//    assert_eq!(signed.signature.chain_id(), Some(CHAIN_ID));
+//    assert_eq!(signed.caller().unwrap(), address);
+
+    println!("CHAIN_ID {}, caller {}", CHAIN_ID, signed.caller().unwrap());
+    println!("Signed transaction: \n{}", hex::encode(rlp_out));
+    // TODO: pass the rlp_out to the outside world.
     sgx_status_t::SGX_SUCCESS
 }
