@@ -56,7 +56,7 @@ static ENCLAVE_TOKEN: &'static str = "enclave.token";
 
 extern {
     fn tls_server_new(eid: sgx_enclave_id_t, retval: *mut * const c_void,
-                     fd: c_int, cert: *const c_char, key: *const c_char) -> sgx_status_t;
+                     fd: c_int, file_path: *const c_char) -> sgx_status_t;
     fn tls_server_read(eid: sgx_enclave_id_t, retval: *mut c_int,
                      session: *const c_void, buf: *mut c_void, cnt: c_int) -> sgx_status_t;
     fn tls_server_write(eid: sgx_enclave_id_t, retval: *mut c_int,
@@ -161,23 +161,21 @@ enum ServerMode {
 struct TlsServer {
     enclave_id: sgx_enclave_id_t,
     server: TcpListener,
-    cert: CString,
-    key: CString,
+    file_path: CString,
     mode: ServerMode,
     connections: HashMap<mio::Token, Connection>,
     next_id: usize,
 }
 
 impl TlsServer {
-    fn new(enclave_id: sgx_enclave_id_t, server: TcpListener, mode: ServerMode, cert: CString, key: CString) -> TlsServer {
+    fn new(enclave_id: sgx_enclave_id_t, server: TcpListener, mode: ServerMode, file_path: CString) -> TlsServer {
 
-        println!("[+] TlsServer new {:?} {:?}", cert, key);
+        println!("[+] TlsServer new {:?} ", file_path);
 
         TlsServer {
             enclave_id: enclave_id,
             server: server,
-            cert: cert,
-            key: key,
+            file_path: file_path,
             mode: mode,
             connections: HashMap::new(),
             next_id: 2
@@ -195,8 +193,7 @@ impl TlsServer {
                     tls_server_new(self.enclave_id,
                                    &mut tlsserver as *mut *const c_void,
                                    socket.as_raw_fd(),
-                                   self.cert.as_bytes_with_nul().as_ptr() as * const c_char,
-                                   self.key.as_bytes_with_nul().as_ptr() as * const c_char)
+                                   self.file_path.as_bytes_with_nul().as_ptr() as * const c_char)
                 };
 
                 if retval != sgx_status_t::SGX_SUCCESS {
@@ -617,8 +614,8 @@ fn main() {
     let addr: net::SocketAddr = "0.0.0.0:8443".parse().unwrap();
     let listener = TcpListener::bind(&addr).expect("cannot listen on port");
 
-    let cert = CString::new("end.fullchain").unwrap();
-    let key = CString::new("end.rsa").unwrap();
+//    let cert = CString::new("end.fullchain").unwrap();
+    let key = CString::new("sgx_file").unwrap();
 
     let mut poll = mio::Poll::new().unwrap();
     poll.register(&listener,
@@ -626,7 +623,7 @@ fn main() {
                   mio::Ready::readable(),
                   mio::PollOpt::level()).unwrap();
 
-    let mut tlsserv = TlsServer::new(enclave.geteid(), listener, ServerMode::Echo, cert, key);
+    let mut tlsserv = TlsServer::new(enclave.geteid(), listener, ServerMode::Echo, key);
 
     println!("[+] TlsServer new success!");
 

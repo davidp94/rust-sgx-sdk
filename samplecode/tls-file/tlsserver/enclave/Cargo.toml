@@ -14,7 +14,11 @@ default = []
 sgx_types = { path = "../../../../sgx_types" }
 sgx_trts = { path = "../../../../sgx_trts" }
 sgx_tstd = { path = "../../../../sgx_tstd", features = ["net"] }
+sgx_rand = { path = "../../../../sgx_rand" }
+sgx_serialize = { path = "../../../../sgx_serialize" }
 
 [dependencies]
 rustls = { path = "../../../../third_party/rustls" }
 webpki = { path = "../../../../third_party/webpki" }
+sgx_rand_derive = { path = "../../../../sgx_rand_derive" }
+sgx_serialize_derive = { path = "../../../../sgx_serialize_derive"}

@@ -60,6 +60,30 @@ extern crate webpki;
 extern crate rustls;
 use rustls::{Session, NoClientAuth};
 
+
+// from file/
+extern crate sgx_rand;
+#[macro_use]
+extern crate sgx_rand_derive;
+extern crate sgx_serialize;
+#[macro_use]
+extern crate sgx_serialize_derive;
+use std::sgxfs::SgxFile;
+//use std::io::{Read, Write};
+use sgx_serialize::{SerializeHelper, DeSerializeHelper};
+
+#[derive(Copy, Clone, Default, Debug, Serializable, DeSerializable, Rand)]
+struct TlsServerSecret {
+    key: [u8; 32], // RSA 4096 bits
+}
+
+//impl Serialize for [u8;512] {
+//
+//}
+//impl Default for [u8;512] {
+//    fn
+//}
+
 pub struct TlsServer {
     socket: TcpStream,
     tls_session: rustls::ServerSession,
@@ -129,60 +153,96 @@ impl TlsServer {
     }
 }
 
-fn load_certs(filename: &str) -> Vec<rustls::Certificate> {
-    let certfile = fs::File::open(filename).expect("cannot open certificate file");
-    let mut reader = BufReader::new(certfile);
-    rustls::internal::pemfile::certs(&mut reader).unwrap()
-}
+//fn load_certs(filename: &str) -> Vec<rustls::Certificate> {
+//    let certfile = fs::File::open(filename).expect("cannot open certificate file");
+//    let mut reader = BufReader::new(certfile);
+//    rustls::internal::pemfile::certs(&mut reader).unwrap()
+//}
 
 fn load_private_key(filename: &str) -> rustls::PrivateKey {
-    let rsa_keys = {
-        let keyfile = fs::File::open(filename)
-            .expect("cannot open private key file");
-        let mut reader = BufReader::new(keyfile);
-        rustls::internal::pemfile::rsa_private_keys(&mut reader)
-            .expect("file contains invalid rsa private key")
-    };
+    let mut data = [0_u8; 10240];
 
-    let pkcs8_keys = {
-        let keyfile = fs::File::open(filename)
-            .expect("cannot open private key file");
-        let mut reader = BufReader::new(keyfile);
-        rustls::internal::pemfile::pkcs8_private_keys(&mut reader)
-            .expect("file contains invalid pkcs8 private key (encrypted keys not supported)")
-    };
+    let mut file = SgxFile::open(filename).unwrap();
 
-    // prefer to load pkcs8 keys
-    if !pkcs8_keys.is_empty() {
-        pkcs8_keys[0].clone()
-    } else {
-        assert!(!rsa_keys.is_empty());
-        rsa_keys[0].clone()
-    }
+//    let read_size = file.read(&mut data).unwrap();
+
+    let helper = DeSerializeHelper::<TlsServerSecret>::new(data.to_vec());
+    let rand = helper.decode().unwrap();
+//    assert!(rand.key, "Could not load private key");
+    let pvtkey: Vec<u8> = rand.key.to_vec();
+    rustls::PrivateKey(pvtkey)
+
+//    let rsa_keys = {
+//        let keyfile = fs::File::open(filename)
+//            .expect("cannot open private key file");
+//        let mut reader = BufReader::new(rand.key);
+//        rustls::internal::pemfile::rsa_private_keys(&mut reader)
+//            .expect("file contains invalid rsa private key")
+//    };
+//
+//    let pkcs8_keys = {
+//        let keyfile = fs::File::open(filename)
+//            .expect("cannot open private key file");
+//        let mut reader = BufReader::new(rand.key);
+//        rustls::internal::pemfile::pkcs8_private_keys(&mut reader)
+//            .expect("file contains invalid pkcs8 private key (encrypted keys not supported)")
+//    };
+//
+//    // prefer to load pkcs8 keys
+//    if !pkcs8_keys.is_empty() {
+//        pkcs8_keys[0].clone()
+//    } else {
+//        assert!(!rsa_keys.is_empty());
+//        rsa_keys[0].clone()
+//    }
 }
 
-fn make_config(cert: &str, key: &str) -> Arc<rustls::ServerConfig> {
+fn make_config(filename: &str) -> Arc<rustls::ServerConfig> {
 
     let mut config = rustls::ServerConfig::new(NoClientAuth::new());
 
-    let certs = load_certs(cert);
-    let privkey = load_private_key(key);
-    config.set_single_cert_with_ocsp_and_sct(certs, privkey, vec![], vec![]);
+//    let certs = load_certs(cert);
+
+    // If does not exist, create
+    match SgxFile::open(filename) {
+        Ok(f) => f,
+        Err(_) => {
+            println!("SgxFile::open failed. Try to create new key");
+            new_key(filename)
+        },
+    };
+
+    let privkey = load_private_key(filename);
+    config.set_single_cert_with_ocsp_and_sct(vec![], privkey, vec![], vec![]);
 
     Arc::new(config)
 }
 
+fn new_key(filename : &str) -> SgxFile {
+    let server_secret = sgx_rand::random::<TlsServerSecret>();
+
+    let helper = SerializeHelper::new();
+    let data = helper.encode(server_secret).unwrap();
+
+    let mut file = SgxFile::create(filename).unwrap();
+
+    let write_size = file.write(data.as_slice()).unwrap();
+
+    println!("write file success, write size: {}, {:?}.", write_size, server_secret);
+    file
+}
+
 #[no_mangle]
-pub extern "C" fn tls_server_new(fd: c_int, cert: * const c_char, key: * const c_char) ->  *const c_void {
-    let certfile = unsafe { CStr::from_ptr(cert).to_str() };
-    if certfile.is_err() {
-        return ptr::null();
-    }
-    let keyfile = unsafe { CStr::from_ptr(key).to_str() };
+pub extern "C" fn tls_server_new(fd: c_int, sgx_file: * const c_char) ->  *const c_void {
+//    let certfile = unsafe { CStr::from_ptr(cert).to_str() };
+//    if certfile.is_err() {
+//        return ptr::null();
+//    }
+    let keyfile = unsafe { CStr::from_ptr(sgx_file).to_str() };
     if keyfile.is_err() {
         return ptr::null();
     }
-    let config = make_config(certfile.unwrap(), keyfile.unwrap());
+    let config = make_config(keyfile.unwrap());
 
     Box::into_raw(Box::new(TlsServer::new(fd, config))) as  *const c_void
 }
