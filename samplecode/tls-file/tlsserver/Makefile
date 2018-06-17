@@ -96,16 +96,22 @@ endif
 Crypto_Library_Name := sgx_tcrypto
 KeyExchange_Library_Name := sgx_tkey_exchange
 ProtectedFs_Library_Name := sgx_tprotected_fs
-
+UProtectedFs_Library_Name := sgx_uprotected_fs
+UStdc_Library_Name := sgx_ustdc
+ifneq ($(SGX_MODE), HW)
+	Urts_Library_Name := sgx_urts_sim
+else
+	Urts_Library_Name := sgx_urts
+endif
 RustEnclave_C_Files := $(wildcard ./enclave/*.c)
 RustEnclave_C_Objects := $(RustEnclave_C_Files:.c=.o)
 RustEnclave_Include_Paths := -I$(SGX_SDK)/include -I$(SGX_SDK)/include/tlibc -I$(SGX_SDK)/include/stlport -I$(SGX_SDK)/include/epid -I ./enclave -I./include
 
-RustEnclave_Link_Libs := -L$(CUSTOM_LIBRARY_PATH) -lcompiler-rt-patch -lenclave
+RustEnclave_Link_Libs := -L$(CUSTOM_LIBRARY_PATH) -lcompiler-rt-patch -l$(Urts_Library_Name) -lenclave
 RustEnclave_Compile_Flags := $(SGX_COMMON_CFLAGS) -nostdinc -fvisibility=hidden -fpie -fstack-protector $(RustEnclave_Include_Paths)
 RustEnclave_Link_Flags := $(SGX_COMMON_CFLAGS) -Wl,--no-undefined -nostdlib -nodefaultlibs -nostartfiles -L$(SGX_LIBRARY_PATH) \
 	-Wl,--whole-archive -l$(Trts_Library_Name) -Wl,--no-whole-archive \
-	-Wl,--start-group -lsgx_tstdc -lsgx_tstdcxx -l$(Crypto_Library_Name) -l$(ProtectedFs_Library_Name) $(RustEnclave_Link_Libs) -Wl,--end-group \
+	-Wl,--start-group -lsgx_tstdc -lsgx_tstdcxx -lsgx_tcxx -l$(Crypto_Library_Name) -l$(ProtectedFs_Library_Name) -l$(UProtectedFs_Library_Name) $(RustEnclave_Link_Libs) -Wl,--end-group \
 	-Wl,-Bstatic -Wl,-Bsymbolic -Wl,--no-undefined \
 	-Wl,-pie,-eenclave_entry -Wl,--export-dynamic  \
 	-Wl,--defsym,__ImageBase=0 \
@@ -151,6 +157,12 @@ $(RustEnclave_Name): enclave compiler-rt enclave/Enclave_t.o
 	@$(CXX) enclave/Enclave_t.o -o $@ $(RustEnclave_Link_Flags)
 	@echo "LINK =>  $@"
 
+#$(RustEnclave_Name): enclave compiler-rt sgx_ustdc enclave/Enclave_t.o
+#	cp ../../../compiler-rt/libcompiler-rt-patch.a ./lib
+#	cp ../../../sgx_ustdc/libsgx_ustdc.a ./lib
+#	@$(CXX) enclave/Enclave_t.o -o $@ $(RustEnclave_Link_Flags)
+#	@echo "LINK =>  $@"
+
 $(Signed_RustEnclave_Name): $(RustEnclave_Name)
 	@$(SGX_ENCLAVE_SIGNER) sign -key enclave/Enclave_private.pem -enclave $(RustEnclave_Name) -out $@ -config enclave/Enclave.config.xml
 	@echo "SIGN =>  $@"
@@ -162,6 +174,10 @@ enclave:
 .PHONY: compiler-rt
 compiler-rt:
 	$(MAKE) -C ../../../compiler-rt/ 2> /dev/null
+
+#.PHONY: sgx_ustdc
+#sgx_ustdc:
+#	$(MAKE) -C ../../../sgx_ustdc/ 2> /dev/null
 
 .PHONY: clean
 clean:
